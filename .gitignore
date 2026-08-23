@@ -1,0 +1,8 @@
+# Ignorar archivos locales temporales y bases de datos
+cuentaclara.db
+key.pem
+cert.pem
+.DS_Store
+.system_generated/
+scratch/
+*.log
