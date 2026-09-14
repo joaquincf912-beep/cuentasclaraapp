@@ -546,6 +546,51 @@ createApp({
       showInstallModal.value = true;
     };
 
+    /* ── Touch Swipe Down Gestures ──────────────────── */
+    let touchStartY = 0;
+    let touchDeltaY = 0;
+    let activeSheetEl = null;
+
+    const onSheetTouchStart = (e) => {
+      touchStartY = e.touches[0].clientY;
+      touchDeltaY = 0;
+      activeSheetEl = e.currentTarget;
+      if (activeSheetEl) activeSheetEl.style.transition = 'none';
+    };
+
+    const onSheetTouchMove = (e) => {
+      if (!activeSheetEl) return;
+      const currentY = e.touches[0].clientY;
+      const dy = currentY - touchStartY;
+      if (dy > 0) {
+        touchDeltaY = dy;
+        activeSheetEl.style.transform = `translateY(${dy}px)`;
+      }
+    };
+
+    const onSheetTouchEnd = (closeCallback) => {
+      if (!activeSheetEl) return;
+      const el = activeSheetEl;
+      activeSheetEl = null;
+      
+      if (touchDeltaY > 80) {
+        el.style.transition = 'transform 0.2s ease-out';
+        el.style.transform = 'translateY(100%)';
+        setTimeout(() => {
+          el.style.transform = '';
+          el.style.transition = '';
+          if (typeof closeCallback === 'function') closeCallback();
+        }, 200);
+      } else {
+        el.style.transition = 'transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+        el.style.transform = 'translateY(0)';
+        setTimeout(() => {
+          el.style.transition = '';
+        }, 250);
+      }
+      touchDeltaY = 0;
+    };
+
     /* ── Lifecycle ─────────────────────────────────── */
     onMounted(() => {
       // Network events
@@ -609,6 +654,7 @@ createApp({
       toggleCurrency, openKeypad, cancelKeypad, kpPress, kpDelete, kpConfirm,
       addItem, changeQty, removeItem, clearCart,
       toggleScanner, handleTitleTap, fetchStats, triggerInstall,
+      onSheetTouchStart, onSheetTouchMove, onSheetTouchEnd,
       // refs
       videoEl, ocrCanvas, toastContainer, rateInput
     };
