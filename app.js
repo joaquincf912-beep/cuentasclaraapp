@@ -24,9 +24,11 @@ function loadJSON(key, fallback) {
 createApp({
   setup() {
     /* ── State ─────────────────────────────────────── */
-    const isOnline      = ref(navigator.onLine);
-    const showIosBanner = ref(false);
-    const installPrompt = ref(null);
+    const isOnline          = ref(navigator.onLine);
+    const showIosBanner     = ref(false);
+    const installPrompt     = ref(null);
+    const showInstallModal  = ref(false);
+    const isIosDevice       = computed(() => /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase()));
 
     // Rates
     const savedRatesData = loadJSON(SK.RATES, { ...DEFAULTS });
@@ -529,6 +531,21 @@ createApp({
       ocrProcessing.value = false;
     };
 
+    const triggerInstall = async () => {
+      if (installPrompt.value) {
+        try {
+          installPrompt.value.prompt();
+          const choice = await installPrompt.value.userChoice;
+          if (choice && choice.outcome === 'accepted') {
+            installPrompt.value = null;
+            showToast('App agregada a inicio', 'success');
+            return;
+          }
+        } catch (e) { console.warn('Install prompt error', e); }
+      }
+      showInstallModal.value = true;
+    };
+
     /* ── Lifecycle ─────────────────────────────────── */
     onMounted(() => {
       // Network events
@@ -571,7 +588,7 @@ createApp({
 
     // Re-render Lucide icons on any reactive change
     watch(
-      [rates, editingRate, price, currency, keypadVisible, cart, scannerActive, ocrProcessing, showIosBanner, showStats],
+      [rates, editingRate, price, currency, keypadVisible, cart, scannerActive, ocrProcessing, showIosBanner, showStats, showInstallModal],
       () => nextTick(() => { if (window.lucide) lucide.createIcons(); }),
       { deep: true }
     );
@@ -583,6 +600,7 @@ createApp({
       price, currency, displayPrice, keypadVisible, kpBuffer, cart,
       scannerActive, ocrProcessing, showStats, statsData,
       rateLastUpdated, rateAge, cameraPermissionGranted,
+      showInstallModal, isIosDevice,
       // computed
       convBcv, totalUSD, totalVES,
       // methods
@@ -590,7 +608,7 @@ createApp({
       startRateEdit, saveRateEdit,
       toggleCurrency, openKeypad, cancelKeypad, kpPress, kpDelete, kpConfirm,
       addItem, changeQty, removeItem, clearCart,
-      toggleScanner, handleTitleTap, fetchStats,
+      toggleScanner, handleTitleTap, fetchStats, triggerInstall,
       // refs
       videoEl, ocrCanvas, toastContainer, rateInput
     };

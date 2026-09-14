@@ -13,8 +13,22 @@
     {
       "src": "https://cdn-icons-png.flaticon.com/512/3028/3028546.png",
       "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3028/3028546.png",
+      "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Abrir Calculadora",
+      "short_name": "Calculadora",
+      "description": "Abrir CuentaClara",
+      "url": "./index.html"
     }
   ]
 }
