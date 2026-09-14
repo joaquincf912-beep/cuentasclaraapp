@@ -688,11 +688,22 @@ createApp({
       nextTick(() => { if (window.lucide) lucide.createIcons(); });
     });
 
-    // Re-render Lucide icons on any reactive change
+    // Re-render Lucide icons smartly only on structural UI changes (not on every keypress)
+    let iconFrame = null;
+    const scheduleIconRender = () => {
+      if (iconFrame) cancelAnimationFrame(iconFrame);
+      iconFrame = requestAnimationFrame(() => {
+        if (window.lucide) lucide.createIcons();
+      });
+    };
+
     watch(
-      [rates, editingRate, price, currency, keypadVisible, cart, scannerActive, ocrProcessing, showIosBanner, showStats],
-      () => nextTick(() => { if (window.lucide) lucide.createIcons(); }),
-      { deep: true }
+      [editingRate, keypadVisible, scannerActive, ocrProcessing, showIosBanner, showStats],
+      () => scheduleIconRender()
+    );
+    watch(
+      () => cart.value.length,
+      () => scheduleIconRender()
     );
 
     /* ── Return ────────────────────────────────────── */

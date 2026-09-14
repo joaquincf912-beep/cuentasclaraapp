@@ -52,6 +52,19 @@
       margin: 0;
       padding: 0;
       -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+
+    button, input, select, textarea, .key, .btn, .currency-sw, .scanner-btn, .clear-btn, .del-btn {
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .card, .keypad, .stats-modal, .toast, .overlay, .viewfinder {
+      will-change: transform, opacity;
+      transform: translateZ(0);
+      backface-visibility: hidden;
     }
 
     html {
