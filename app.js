@@ -573,14 +573,19 @@ createApp({
 
     /* ── Touch Swipe Down Gestures ──────────────────── */
     let touchStartY = 0;
+    let touchStartTime = 0;
     let touchDeltaY = 0;
     let activeSheetEl = null;
+    let activeOverlayEl = null;
 
     const onSheetTouchStart = (e) => {
       touchStartY = e.touches[0].clientY;
+      touchStartTime = Date.now();
       touchDeltaY = 0;
       activeSheetEl = e.currentTarget;
+      activeOverlayEl = activeSheetEl ? activeSheetEl.closest('.overlay') : null;
       if (activeSheetEl) activeSheetEl.style.transition = 'none';
+      if (activeOverlayEl) activeOverlayEl.style.transition = 'none';
     };
 
     const onSheetTouchMove = (e) => {
@@ -588,29 +593,56 @@ createApp({
       const currentY = e.touches[0].clientY;
       const dy = currentY - touchStartY;
       if (dy > 0) {
+        if (e.cancelable) e.preventDefault();
         touchDeltaY = dy;
         activeSheetEl.style.transform = `translateY(${dy}px)`;
+        if (activeOverlayEl) {
+          const opacity = Math.max(0, 1 - (dy / 300));
+          activeOverlayEl.style.opacity = opacity;
+        }
       }
     };
 
     const onSheetTouchEnd = (closeCallback) => {
       if (!activeSheetEl) return;
       const el = activeSheetEl;
+      const overlayEl = activeOverlayEl;
       activeSheetEl = null;
+      activeOverlayEl = null;
       
-      if (touchDeltaY > 80) {
-        el.style.transition = 'transform 0.2s ease-out';
+      const duration = Date.now() - touchStartTime;
+      const velocity = touchDeltaY / (duration || 1);
+      
+      if (touchDeltaY > 50 || (velocity > 0.35 && touchDeltaY > 15)) {
+        el.style.transition = 'transform 0.22s cubic-bezier(0.32, 0.72, 0, 1)';
         el.style.transform = 'translateY(100%)';
+        if (overlayEl) {
+          overlayEl.style.transition = 'opacity 0.22s ease-out';
+          overlayEl.style.opacity = '0';
+        }
         setTimeout(() => {
           el.style.transform = '';
           el.style.transition = '';
+          if (overlayEl) {
+            overlayEl.style.opacity = '';
+            overlayEl.style.transition = '';
+          }
           if (typeof closeCallback === 'function') closeCallback();
-        }, 200);
+        }, 220);
       } else {
         el.style.transition = 'transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
         el.style.transform = 'translateY(0)';
+        if (overlayEl) {
+          overlayEl.style.transition = 'opacity 0.25s ease-out';
+          overlayEl.style.opacity = '1';
+        }
         setTimeout(() => {
+          el.style.transform = '';
           el.style.transition = '';
+          if (overlayEl) {
+            overlayEl.style.opacity = '';
+            overlayEl.style.transition = '';
+          }
         }, 250);
       }
       touchDeltaY = 0;

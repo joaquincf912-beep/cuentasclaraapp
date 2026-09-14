@@ -423,17 +423,22 @@
       width: 100%; max-width: 428px;
       border-top-left-radius: 20px;
       border-top-right-radius: 20px;
-      padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+      padding: 16px 16px calc(20px + env(safe-area-inset-bottom, 0px));
       border-top: 0.5px solid var(--border);
       animation: slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+      touch-action: pan-y;
+      user-select: none;
+      -webkit-user-select: none;
     }
     @keyframes slideUp {
       from { transform: translateY(100%); }
       to { transform: translateY(0); }
     }
     .kp-handle {
-      width: 36px; height: 4px; border-radius: 2px;
+      width: 42px; height: 5px; border-radius: 3px;
       background: var(--text-tertiary); margin: 0 auto 16px;
+      opacity: 0.7;
+      cursor: grab;
     }
     .kp-display {
       font-size: 38px; font-weight: 700; text-align: right;
