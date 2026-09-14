@@ -186,13 +186,12 @@ createApp({
     const saveRates = () => localStorage.setItem(SK.RATES, JSON.stringify({ ...rates.value, timestamp: Date.now(), date: rateLastUpdated.value }));
 
     const fetchRates = async () => {
-      // CASCADE: Try multiple sources in order
-      const sources = [
-        {
-          name: 'DolarVzla BCV Realtime',
-          url: 'https://rates.dolarvzla.com/bcv/current.json',
-          extract: (data) => ({ rate: data?.current?.usd, date: data?.current?.date })
-        },
+      let bestRate = null;
+      let bestDate = null;
+      let fetched = false;
+
+      // === SOURCE GROUP 1: DolarAPI (direct, has CORS) ===
+      const dolarApiSources = [
         {
           name: 'DolarAPI Oficial',
           url: 'https://ve.dolarapi.com/v1/dolares/oficial',
@@ -208,8 +207,7 @@ createApp({
         }
       ];
 
-      let fetched = false;
-      for (const source of sources) {
+      for (const source of dolarApiSources) {
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 8000);
@@ -218,38 +216,67 @@ createApp({
           const data = await res.json();
           const result = source.extract(data);
 
-          if (result && result.rate) {
-            // VALIDATION 1: Range check (500-2000 Bs/$)
-            if (result.rate < 500 || result.rate > 2000) {
-              console.warn(`Rate out of range from ${source.name}: ${result.rate}`);
-              continue;
-            }
-
-            // VALIDATION 2: Date freshness (max 7 days old for weekends/holidays)
-            if (result.date) {
-              const rateDate = new Date(result.date);
-              const now = new Date();
-              const daysDiff = (now - rateDate) / (1000 * 60 * 60 * 24);
-              if (daysDiff > 7) {
-                console.warn(`Rate from ${source.name} is ${Math.floor(daysDiff)} days old`);
-                // Still use it if we have nothing better, but flag it
-              }
-              rateLastUpdated.value = result.date;
-            }
-
-            rates.value.bcv = result.rate;
-            saveRates();
-            showToast('Tasa BCV actualizada', 'success');
+          if (result && result.rate && result.rate >= 500 && result.rate <= 2000) {
+            bestRate = result.rate;
+            bestDate = result.date;
             fetched = true;
+            console.log(`[Rate] Got ${result.rate} from ${source.name} (date: ${result.date})`);
             break;
           }
         } catch (e) {
-          console.warn(`Failed to fetch from ${source.name}:`, e.message);
+          console.warn(`[Rate] Failed ${source.name}:`, e.message);
         }
       }
 
-      // If all sources failed, check localStorage age
-      if (!fetched) {
+      // === SOURCE GROUP 2: DolarVzla via CORS proxies (more up-to-date) ===
+      // Only try if we didn't get a rate from today, or if DolarAPI failed
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const bestDateStr = bestDate ? new Date(bestDate).toISOString().slice(0, 10) : null;
+      const needsFresher = !fetched || (bestDateStr && bestDateStr !== todayStr);
+
+      if (needsFresher) {
+        const dolarvzlaUrl = 'https://rates.dolarvzla.com/bcv/current.json';
+        const corsProxies = [
+          (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+          (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+          (u) => u  // Direct attempt (works if same-origin or CORS added later)
+        ];
+
+        for (const makeUrl of corsProxies) {
+          try {
+            const proxyUrl = makeUrl(dolarvzlaUrl);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
+            const res = await fetch(proxyUrl, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            const data = await res.json();
+
+            if (data?.current?.usd && data.current.usd >= 500 && data.current.usd <= 2000) {
+              const vzlaDate = data.current.date; // format: "2026-09-15"
+              // Use DolarVzla rate if it's newer than what we have
+              if (!bestDate || (vzlaDate && vzlaDate > (bestDateStr || ''))) {
+                bestRate = data.current.usd;
+                bestDate = vzlaDate;
+                fetched = true;
+                console.log(`[Rate] Got fresher rate ${data.current.usd} from DolarVzla (date: ${vzlaDate})`);
+              }
+              break; // Got a valid response, stop trying proxies
+            }
+          } catch (e) {
+            console.warn(`[Rate] DolarVzla proxy failed:`, e.message);
+          }
+        }
+      }
+
+      // === Apply the best rate found ===
+      if (fetched && bestRate) {
+        rates.value.bcv = bestRate;
+        rateLastUpdated.value = bestDate;
+        saveRates();
+        showToast('Tasa BCV actualizada', 'success');
+        retryCount.value = 0;
+      } else {
+        // All sources failed, check localStorage age
         const saved = loadJSON(SK.RATES, null);
         if (saved && saved.timestamp) {
           const hoursSinceSaved = (Date.now() - saved.timestamp) / (1000 * 60 * 60);
@@ -265,8 +292,6 @@ createApp({
           retryCount.value++;
           setTimeout(fetchRates, 30000);
         }
-      } else {
-        retryCount.value = 0;
       }
     };
 
@@ -633,7 +658,7 @@ createApp({
 
     // Re-render Lucide icons on any reactive change
     watch(
-      [rates, editingRate, price, currency, keypadVisible, cart, scannerActive, ocrProcessing, showIosBanner, showStats, showInstallModal],
+      [rates, editingRate, price, currency, keypadVisible, cart, scannerActive, ocrProcessing, showIosBanner, showStats],
       () => nextTick(() => { if (window.lucide) lucide.createIcons(); }),
       { deep: true }
     );
@@ -644,8 +669,7 @@ createApp({
       isOnline, showIosBanner, rates, editingRate, rateEditVal,
       price, currency, displayPrice, keypadVisible, kpBuffer, cart,
       scannerActive, ocrProcessing, showStats, statsData,
-      rateLastUpdated, rateAge, cameraPermissionGranted,
-      showInstallModal, isIosDevice,
+      rateLastUpdated, rateAge, cameraPermissionGranted, isIosDevice,
       // computed
       convBcv, totalUSD, totalVES,
       // methods
@@ -653,7 +677,7 @@ createApp({
       startRateEdit, saveRateEdit,
       toggleCurrency, openKeypad, cancelKeypad, kpPress, kpDelete, kpConfirm,
       addItem, changeQty, removeItem, clearCart,
-      toggleScanner, handleTitleTap, fetchStats, triggerInstall,
+      toggleScanner, handleTitleTap, fetchStats,
       onSheetTouchStart, onSheetTouchMove, onSheetTouchEnd,
       // refs
       videoEl, ocrCanvas, toastContainer, rateInput
