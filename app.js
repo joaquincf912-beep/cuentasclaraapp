@@ -1,7 +1,7 @@
 /* CuentaClara — app.js */
 const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
 
-const DEFAULTS = { bcv: 779.9522 };
+const DEFAULTS = { bcv: 842.2067 };
 const SK = {
   RATES: 'cuentaclara_rates',
   CART:  'cuentaclara_cart',
@@ -186,6 +186,11 @@ createApp({
     const fetchRates = async () => {
       // CASCADE: Try multiple sources in order
       const sources = [
+        {
+          name: 'DolarVzla BCV Realtime',
+          url: 'https://rates.dolarvzla.com/bcv/current.json',
+          extract: (data) => ({ rate: data?.current?.usd, date: data?.current?.date })
+        },
         {
           name: 'DolarAPI Oficial',
           url: 'https://ve.dolarapi.com/v1/dolares/oficial',

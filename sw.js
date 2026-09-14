@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cuentaclara-v3';
+const CACHE_NAME = 'cuentaclara-v4';
 
 // Recursos críticos para pre-cachear en la instalación
 const PRECACHE_URLS = [
@@ -88,8 +88,8 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // 1. Llamadas a la API (ve.dolarapi.com): Network-First con 5s de timeout
-  if (url.hostname === 've.dolarapi.com') {
+  // 1. Llamadas a las APIs de tasa (dolarapi / dolarvzla): Network-First con 5s de timeout
+  if (url.hostname === 've.dolarapi.com' || url.hostname === 'rates.dolarvzla.com') {
     event.respondWith(
       networkWithTimeout(event.request, 5000)
         .then((response) => {
