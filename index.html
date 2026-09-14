@@ -11,6 +11,15 @@
   <title>CuentaClara App</title>
 
   <link rel="manifest" href="manifest.json">
+  <!-- DNS prefetch for faster CDN resolution -->
+  <link rel="dns-prefetch" href="https://unpkg.com">
+  <link rel="dns-prefetch" href="https://ve.dolarapi.com">
+  <link rel="dns-prefetch" href="https://fonts.googleapis.com">
+  <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+  <!-- Preload critical resources -->
+  <link rel="preload" href="https://unpkg.com/vue@3.5.13/dist/vue.global.prod.js" as="script">
+  <link rel="preload" href="app.js" as="script">
+  <!-- Fonts with display=swap (non-blocking) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -500,6 +509,7 @@
 
     /* --- Hidden utility --- */
     .hidden-canvas { position: absolute; top: -9999px; left: -9999px; }
+    [v-cloak] { display: none; }
 
     /* --- Stats Panel --- */
     .stats-modal {
@@ -540,9 +550,65 @@
     /* Scrollbar */
     ::-webkit-scrollbar { display: none; }
   </style>
+  <!-- Inline skeleton shown instantly before Vue loads -->
+  <style id="skeleton-styles">
+    .skeleton-app {
+      max-width: 428px;
+      margin: 0 auto;
+      padding-top: env(safe-area-inset-top, 0px);
+    }
+    .skeleton-header {
+      background: #1c1c1e;
+      padding: 16px;
+      border-bottom: 0.5px solid #38383a;
+    }
+    .skeleton-bar {
+      height: 14px;
+      background: linear-gradient(90deg, #2c2c2e 25%, #3a3a3c 50%, #2c2c2e 75%);
+      background-size: 200% 100%;
+      animation: skeletonShimmer 1.5s ease-in-out infinite;
+      border-radius: 4px;
+    }
+    .skeleton-card {
+      background: #1c1c1e;
+      border: 0.5px solid #38383a;
+      border-radius: 12px;
+      margin: 12px 16px 0;
+      padding: 16px;
+    }
+    .skeleton-bar.w60 { width: 60%; }
+    .skeleton-bar.w40 { width: 40%; }
+    .skeleton-bar.w80 { width: 80%; }
+    .skeleton-bar.h40 { height: 40px; }
+    .skeleton-bar.h160 { height: 160px; border-radius: 8px; }
+    .skeleton-bar + .skeleton-bar { margin-top: 10px; }
+    @keyframes skeletonShimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    /* Hide skeleton when Vue has loaded */
+    [v-cloak] ~ .skeleton-app { display: flex; }
+    [v-cloak] { display: none !important; }
+    .skeleton-app { display: none; }
+  </style>
 </head>
 <body>
-  <div id="app">
+  <!-- Loading skeleton (visible until Vue mounts) -->
+  <div class="skeleton-app" id="skeleton">
+    <div class="skeleton-header">
+      <div class="skeleton-bar w60" style="margin-bottom:12px;"></div>
+      <div class="skeleton-bar w80" style="height:32px;"></div>
+    </div>
+    <div class="skeleton-card">
+      <div class="skeleton-bar w40" style="margin-bottom:12px;"></div>
+      <div class="skeleton-bar h160"></div>
+    </div>
+    <div class="skeleton-card">
+      <div class="skeleton-bar w60" style="margin-bottom:12px;"></div>
+      <div class="skeleton-bar h40"></div>
+    </div>
+  </div>
+  <div id="app" v-cloak>
     <!-- Toast Container -->
     <div class="toast-container" ref="toastContainer"></div>
 
@@ -572,6 +638,9 @@
             <button @click="startRateEdit('bcv')" aria-label="Editar tasa BCV"><i data-lucide="pencil" width="11" height="11"></i></button>
           </template>
         </div>
+      </div>
+      <div v-if="rateLastUpdated" style="text-align:center; margin-top:6px; font-size:10px; color:var(--text-tertiary);">
+        Actualizada: {{ rateAge }}
       </div>
     </header>
 
@@ -744,9 +813,30 @@
     <canvas ref="ocrCanvas" class="hidden-canvas"></canvas>
   </div>
 
-  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <script src="https://unpkg.com/tesseract.js@5.0.3/dist/tesseract.min.js"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Critical: Vue loads first -->
+  <script src="https://unpkg.com/vue@3.5.13/dist/vue.global.prod.js"></script>
+  <!-- Lucide icons (fixed version) -->
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <!-- App logic -->
   <script src="app.js"></script>
+  <!-- Tesseract: loaded lazily by app.js when scanner is activated -->
+  <!-- Remove skeleton after Vue mounts -->
+  <script>
+    (function() {
+      var skeleton = document.getElementById('skeleton');
+      if (skeleton) {
+        // Remove skeleton after a short delay to ensure Vue has rendered
+        var observer = new MutationObserver(function() {
+          if (document.querySelector('#app').children.length > 0) {
+            skeleton.style.display = 'none';
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.querySelector('#app'), { childList: true });
+        // Fallback: remove after 3 seconds regardless
+        setTimeout(function() { skeleton.style.display = 'none'; }, 3000);
+      }
+    })();
+  </script>
 </body>
 </html>

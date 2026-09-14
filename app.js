@@ -29,9 +29,12 @@ createApp({
     const installPrompt = ref(null);
 
     // Rates
-    const rates        = ref(loadJSON(SK.RATES, { ...DEFAULTS }));
+    const savedRatesData = loadJSON(SK.RATES, { ...DEFAULTS });
+    const rates        = ref({ bcv: savedRatesData.bcv || DEFAULTS.bcv });
     const editingRate  = ref(null);
     const rateEditVal  = ref(0);
+    const rateLastUpdated = ref(savedRatesData.date || null);
+    const retryCount = ref(0);
 
     // Price input
     const price    = ref(0);
@@ -63,8 +66,8 @@ createApp({
     const ocrCanvas     = ref(null);
     const toastContainer = ref(null);
     const rateInput     = ref(null);
+    const cameraPermissionGranted = ref(false);
 
-    let stream       = null;
     let scanTimer     = null;
 
     /* ── Formatters ────────────────────────────────── */
@@ -178,19 +181,113 @@ createApp({
     };
 
     /* ── Rates ─────────────────────────────────────── */
-    const saveRates = () => localStorage.setItem(SK.RATES, JSON.stringify(rates.value));
+    const saveRates = () => localStorage.setItem(SK.RATES, JSON.stringify({ ...rates.value, timestamp: Date.now(), date: rateLastUpdated.value }));
 
     const fetchRates = async () => {
-      try {
-        const res = await fetch('https://ve.dolarapi.com/v1/dolares/oficial');
-        const data = await res.json();
-        if (data?.promedio) {
-          rates.value.bcv = data.promedio;
-          saveRates();
-          showToast('Tasa BCV actualizada', 'success');
+      // CASCADE: Try multiple sources in order
+      const sources = [
+        {
+          name: 'DolarAPI Oficial',
+          url: 'https://ve.dolarapi.com/v1/dolares/oficial',
+          extract: (data) => ({ rate: data?.promedio, date: data?.fechaActualizacion })
+        },
+        {
+          name: 'DolarAPI Array',
+          url: 'https://ve.dolarapi.com/v1/dolares',
+          extract: (data) => {
+            const oficial = Array.isArray(data) ? data.find(d => d.fuente === 'oficial') : null;
+            return oficial ? { rate: oficial.promedio, date: oficial.fechaActualizacion } : null;
+          }
         }
-      } catch (e) { console.warn('Rate fetch error', e); }
+      ];
+
+      let fetched = false;
+      for (const source of sources) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+          const res = await fetch(source.url, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          const data = await res.json();
+          const result = source.extract(data);
+
+          if (result && result.rate) {
+            // VALIDATION 1: Range check (500-2000 Bs/$)
+            if (result.rate < 500 || result.rate > 2000) {
+              console.warn(`Rate out of range from ${source.name}: ${result.rate}`);
+              continue;
+            }
+
+            // VALIDATION 2: Date freshness (max 7 days old for weekends/holidays)
+            if (result.date) {
+              const rateDate = new Date(result.date);
+              const now = new Date();
+              const daysDiff = (now - rateDate) / (1000 * 60 * 60 * 24);
+              if (daysDiff > 7) {
+                console.warn(`Rate from ${source.name} is ${Math.floor(daysDiff)} days old`);
+                // Still use it if we have nothing better, but flag it
+              }
+              rateLastUpdated.value = result.date;
+            }
+
+            rates.value.bcv = result.rate;
+            saveRates();
+            showToast('Tasa BCV actualizada', 'success');
+            fetched = true;
+            break;
+          }
+        } catch (e) {
+          console.warn(`Failed to fetch from ${source.name}:`, e.message);
+        }
+      }
+
+      // If all sources failed, check localStorage age
+      if (!fetched) {
+        const saved = loadJSON(SK.RATES, null);
+        if (saved && saved.timestamp) {
+          const hoursSinceSaved = (Date.now() - saved.timestamp) / (1000 * 60 * 60);
+          if (hoursSinceSaved > 48) {
+            showToast('Tasa desactualizada. Verifique conexión.', 'danger');
+          } else {
+            showToast('Usando tasa guardada', 'info');
+          }
+        }
+
+        // Schedule retry (up to 3 times)
+        if (retryCount.value < 3) {
+          retryCount.value++;
+          setTimeout(fetchRates, 30000);
+        }
+      } else {
+        retryCount.value = 0;
+      }
     };
+
+    const fetchParalelo = async () => {
+      try {
+        const res = await fetch('https://ve.dolarapi.com/v1/dolares/paralelo');
+        const data = await res.json();
+        if (data?.promedio && data.promedio > 0) {
+          // Cross-validation: paralelo should always be >= oficial
+          if (rates.value.bcv > data.promedio * 1.05) {
+            console.warn('BCV rate higher than paralelo — possible error');
+            showToast('Verificando tasa BCV...', 'info');
+          }
+        }
+      } catch (e) { /* silent */ }
+    };
+
+    const rateAge = computed(() => {
+      if (!rateLastUpdated.value) return '';
+      const date = new Date(rateLastUpdated.value);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 0) return 'Hoy';
+      if (diffDays === 1) return 'Hace 1 día';
+      return `Hace ${diffDays} días`;
+    });
 
     const startRateEdit = (type) => {
       editingRate.value = type;
@@ -279,42 +376,74 @@ createApp({
 
     /* ── Scanner / OCR ─────────────────────────────── */
     let ocrWorker = null;
+    let workerReady = false;
+    let cachedStream = null;
 
     const initWorker = async () => {
-      if (ocrWorker) return ocrWorker;
+      if (workerReady && ocrWorker) return ocrWorker;
       try {
         ocrWorker = await Tesseract.createWorker('eng', 1, {
           workerPath: 'https://unpkg.com/tesseract.js@5.0.3/dist/worker.min.js',
           corePath: 'https://unpkg.com/tesseract.js-core@5.0.0/tesseract-core.wasm.js',
-          logger: m => console.log('Tesseract:', m.status)
+          logger: () => {} // silent in production
         });
         await ocrWorker.setParameters({
           tessedit_char_whitelist: '0123456789.,$Bbs'
         });
+        workerReady = true;
       } catch (err) {
-        console.error('Failed to init Tesseract worker', err);
+        console.error('Tesseract init failed', err);
       }
       return ocrWorker;
+    };
+
+    const checkCameraPermission = async () => {
+      try {
+        const result = await navigator.permissions.query({ name: 'camera' });
+        cameraPermissionGranted.value = (result.state === 'granted');
+        result.addEventListener('change', () => {
+          cameraPermissionGranted.value = (result.state === 'granted');
+        });
+      } catch (e) {
+        // permissions API not supported, that's ok
+      }
+    };
+
+    const ensureTesseract = () => {
+      return new Promise((resolve) => {
+        if (typeof Tesseract !== 'undefined') { resolve(); return; }
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/tesseract.js@5.0.3/dist/tesseract.min.js';
+        script.onload = resolve;
+        script.onerror = () => resolve(); // don't block
+        document.head.appendChild(script);
+      });
     };
 
     const toggleScanner = async () => {
       if (scannerActive.value) { stopScanner(); return; }
       try {
-        showToast('Iniciando lector...', 'info');
-        // Pre-initialize worker in background
-        initWorker();
+        await ensureTesseract();
+
+        // Don't show 'Iniciando...' if permission already granted
+        if (!cameraPermissionGranted.value) {
+          showToast('Iniciando lector...', 'info');
+        }
         
-        stream = await navigator.mediaDevices.getUserMedia({
+        // Start camera immediately
+        const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
         }).catch(() => navigator.mediaDevices.getUserMedia({ video: true }));
 
+        cachedStream = stream;
+        cameraPermissionGranted.value = true;
         scannerActive.value = true;
+        
         nextTick(() => {
           if (videoEl.value) {
             videoEl.value.srcObject = stream;
             videoEl.value.play();
-            // Start scanning frame loop
-            scanTimer = setInterval(ocrFrame, 1500);
+            scanTimer = setInterval(ocrFrame, 1000); // Faster: 1 second intervals
           }
         });
       } catch (e) {
@@ -324,7 +453,7 @@ createApp({
 
     const stopScanner = () => {
       if (scanTimer) { clearInterval(scanTimer); scanTimer = null; }
-      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      if (cachedStream) { cachedStream.getTracks().forEach(t => t.stop()); cachedStream = null; }
       scannerActive.value = false;
       ocrProcessing.value = false;
     };
@@ -412,9 +541,19 @@ createApp({
 
       // Fetch rates
       if (isOnline.value) {
-        fetchRates();
+        fetchRates().then(() => fetchParalelo());
         logVisit();
       }
+
+      // Pre-warm Tesseract worker after 3 seconds
+      setTimeout(() => {
+        if (typeof Tesseract !== 'undefined') {
+          initWorker();
+        }
+      }, 3000);
+
+      // Check camera permission
+      checkCameraPermission();
 
       // Service Worker
       if ('serviceWorker' in navigator) {
@@ -438,6 +577,7 @@ createApp({
       isOnline, showIosBanner, rates, editingRate, rateEditVal,
       price, currency, displayPrice, keypadVisible, kpBuffer, cart,
       scannerActive, ocrProcessing, showStats, statsData,
+      rateLastUpdated, rateAge, cameraPermissionGranted,
       // computed
       convBcv, totalUSD, totalVES,
       // methods
