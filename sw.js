@@ -1,15 +1,15 @@
-const CACHE_NAME = 'cuentaclara-v8';
+const CACHE_NAME = 'cuentaclara-v9';
 
 // Recursos críticos para pre-cachear en la instalación
 const PRECACHE_URLS = [
   './',
   './index.html',
   './app.js',
-  './manifest.json?v=8',
-  './icon-192.png?v=8',
-  './icon-512.png?v=8',
-  './apple-touch-icon.png?v=8',
-  './favicon.png?v=8',
+  './manifest.json?v=9',
+  './icon-192.png?v=9',
+  './icon-512.png?v=9',
+  './apple-touch-icon.png?v=9',
+  './favicon.png?v=9',
   'https://unpkg.com/vue@3.5.13/dist/vue.global.prod.js',
   'https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js',
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'
