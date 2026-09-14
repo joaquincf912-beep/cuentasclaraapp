@@ -1,6 +1,6 @@
 {
   "short_name": "CuentaClara",
-  "name": "CuentaClara App - Control de Precios",
+  "name": "CuentaClara App",
   "description": "Calculadora de precios para compras en Venezuela con conversión BCV en tiempo real.",
   "start_url": "./index.html",
   "scope": "./",
@@ -11,13 +11,13 @@
   "categories": ["finance", "shopping", "utilities"],
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3028/3028546.png",
+      "src": "./icon-192.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any"
     },
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3028/3028546.png",
+      "src": "./icon-512.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"
@@ -27,7 +27,7 @@
     {
       "name": "Abrir Calculadora",
       "short_name": "Calculadora",
-      "description": "Abrir CuentaClara",
+      "description": "Abrir CuentaClara App",
       "url": "./index.html"
     }
   ]
