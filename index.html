@@ -113,20 +113,6 @@
       background: none; border: none; color: var(--text-tertiary); font-size: 14px; cursor: pointer; padding: 4px;
       flex-shrink: 0;
     }
-    .notif-pill-btn {
-      background: rgba(48, 209, 88, 0.15);
-      color: #30d158;
-      border: 0.5px solid rgba(48, 209, 88, 0.35);
-      padding: 4px 10px;
-      border-radius: 12px;
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      transition: all 0.2s;
-    }
 
     /* --- Header --- */
     header {
@@ -671,10 +657,6 @@
       <div class="header-row">
         <h1 class="app-name" @click="handleTitleTap" style="cursor: pointer; select: none;">CuentaClara App</h1>
         <div style="display:flex; gap:8px; align-items:center;">
-          <button v-if="!notificationsEnabled" class="notif-pill-btn" @click="requestNotificationPermission">
-            <i data-lucide="bell" width="12" height="12"></i>
-            Activar Avisos
-          </button>
           <div class="status-pill">
             <span class="status-dot" :class="isOnline ? 'on' : 'off'"></span>
             {{ isOnline ? 'Sincronizado' : 'Sin conexión' }}
