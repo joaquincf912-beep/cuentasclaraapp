@@ -624,18 +624,11 @@ createApp({
       }
 
       try {
-        if (Notification.permission === 'granted') {
-          sendRandomNotification('🔔 Notificaciones Activas', '¡Ve por tu siguiente compra! Te acompañamos en tus compras.');
-          showToast('Notificaciones activas', 'info');
-          return;
-        }
-
-        // Direct call inside click gesture handler
         const permission = await Notification.requestPermission();
         notificationsEnabled.value = (permission === 'granted');
         if (permission === 'granted') {
           showToast('Notificaciones activadas 🔔', 'success');
-          sendRandomNotification('🛒 ¡Ve por tu siguiente compra!', 'Saca tu siguiente cuenta con CuentaClara App.');
+          await sendRandomNotification('🛒 ¡Ve por tu siguiente compra!', 'Saca tu siguiente cuenta con CuentaClara App.');
         } else {
           showToast('Permiso de notificaciones denegado', 'info');
         }
@@ -644,29 +637,39 @@ createApp({
       }
     };
 
-    const sendRandomNotification = (customTitle, customBody) => {
+    const sendRandomNotification = async (customTitle, customBody) => {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
       const msg = NOTIFICATION_MESSAGES[Math.floor(Math.random() * NOTIFICATION_MESSAGES.length)];
       const title = customTitle || msg.title;
       const body = customBody || msg.body;
 
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.ready.then((reg) => {
-          reg.showNotification(title, {
-            body: body,
-            icon: './icon-192.png',
-            badge: './icon-192.png',
-            vibrate: [200, 100, 200],
-            tag: 'cuentaclara-reminder',
-            renotify: true,
-            data: { url: './' }
-          });
-        });
-      } else {
-        try {
-          new Notification(title, { body, icon: './icon-192.png' });
-        } catch (e) { console.warn(e); }
+      try {
+        if ('serviceWorker' in navigator) {
+          const reg = await navigator.serviceWorker.ready;
+          if (reg && reg.showNotification) {
+            await reg.showNotification(title, {
+              body: body,
+              icon: './icon-192.png',
+              badge: './icon-192.png',
+              vibrate: [200, 100, 200],
+              tag: 'cuentaclara-reminder-' + Date.now(),
+              renotify: true,
+              data: { url: './' }
+            });
+            console.log('[Notification] Sent via SW:', title);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('SW showNotification error:', e);
+      }
+
+      // Fallback for desktop browsers if SW method is unavailable
+      try {
+        new Notification(title, { body: body, icon: './icon-192.png' });
+      } catch (e) {
+        console.warn('Fallback Notification error:', e);
       }
     };
 
