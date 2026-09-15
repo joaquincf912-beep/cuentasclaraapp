@@ -94,20 +94,25 @@
       padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
     }
 
-    /* --- Install Banner --- */
-    .install-banner {
-      background: linear-gradient(135deg, #1c1c1e 0%, #2c2c2e 100%);
-      padding: 14px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-size: 13px;
-      line-height: 1.4;
-      border-bottom: 1px solid var(--border);
+    /* --- Notification Permission Banner --- */
+    .notif-banner {
+      background: #1c1c1e;
+      border-bottom: 0.5px solid var(--border);
+      padding: 10px 16px;
+      animation: slideUp 0.3s ease-out;
     }
-    .install-banner p { color: var(--text-secondary); flex: 1; margin-right: 12px; }
-    .install-banner strong { color: var(--text-primary); }
-    .install-banner button {
+    .notif-banner-content {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .notif-btn-grant {
+      background: #30d158; color: #000; font-weight: 700; font-size: 12px;
+      border: none; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+      flex-shrink: 0;
+    }
+    .notif-btn-dismiss {
+      background: none; border: none; color: var(--text-tertiary); font-size: 14px; cursor: pointer; padding: 4px;
+      flex-shrink: 0;
+    }
       background: none; border: none; color: var(--blue);
       font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
     }
@@ -637,10 +642,17 @@
     <!-- Toast Container -->
     <div class="toast-container" ref="toastContainer"></div>
 
-    <!-- iOS Install Banner -->
-    <div class="install-banner" v-if="showIosBanner">
-      <p>Instala <strong>CuentaClara App</strong> desde el menú Compartir y selecciona "Agregar a inicio".</p>
-      <button @click="showIosBanner = false">Cerrar</button>
+    <!-- Notification Permission Banner -->
+    <div class="notif-banner" v-if="showNotifBanner">
+      <div class="notif-banner-content">
+        <i data-lucide="bell-ring" width="18" height="18" style="color:#30d158; flex-shrink:0;"></i>
+        <div style="flex:1;">
+          <div style="font-weight:700; font-size:13px; color:#fff;">¿Activar avisos para tus compras?</div>
+          <div style="font-size:11px; color:var(--text-secondary);">Recibe alertas para acompañarte en tus compras.</div>
+        </div>
+        <button class="notif-btn-grant" @click="requestNotificationPermission">Activar</button>
+        <button class="notif-btn-dismiss" @click="dismissNotifBanner">✕</button>
+      </div>
     </div>
 
     <!-- Header -->

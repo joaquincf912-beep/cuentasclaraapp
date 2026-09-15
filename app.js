@@ -499,7 +499,7 @@ createApp({
       const canvas = ocrCanvas.value;
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-      // Crop a focused center region (65% width, 22% height)
+      // Focused center box (65% width, 22% height)
       const vWidth = video.videoWidth;
       const vHeight = video.videoHeight;
       const cw = Math.floor(vWidth * 0.65);
@@ -507,8 +507,7 @@ createApp({
       const sx = Math.floor((vWidth - cw) / 2);
       const sy = Math.floor((vHeight - ch) / 2);
 
-      // Downscale to ~350px width for 5x faster OCR recognition speed
-      const scale = Math.min(1.0, 350 / cw);
+      const scale = Math.min(1.0, 360 / cw);
       const targetW = Math.max(1, Math.floor(cw * scale));
       const targetH = Math.max(1, Math.floor(ch * scale));
 
@@ -516,12 +515,12 @@ createApp({
       canvas.height = targetH;
       ctx.drawImage(video, sx, sy, cw, ch, 0, 0, targetW, targetH);
 
-      // High-contrast binarization & Grayscale for instant digit recognition
+      // Smooth grayscale + contrast stretch (NO noisy binarization)
       const img = ctx.getImageData(0, 0, targetW, targetH);
       const d = img.data;
       for (let i = 0; i < d.length; i += 4) {
         let gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
-        let v = gray > 140 ? 255 : (gray < 75 ? 0 : gray);
+        let v = Math.min(255, Math.max(0, (gray - 128) * 1.25 + 128));
         d[i] = d[i+1] = d[i+2] = v;
       }
       ctx.putImageData(img, 0, 0);
@@ -530,16 +529,27 @@ createApp({
         const worker = await initWorker();
         if (!worker) { ocrProcessing.value = false; return; }
 
-        const { data: { text } } = await worker.recognize(canvas);
-        const cleanText = (text || '').replace(/\s+/g, ' ').trim();
+        const res = await worker.recognize(canvas);
+        const text = (res?.data?.text || '').trim();
+        const confidence = res?.data?.confidence || 0;
 
-        // Advanced regex pattern:
-        // Matches "$ 12.50", "12,50", "Bs. 500", "Bs 1.250,50", "500.00$", "Bs500"
-        const regex = /(?:([$]|Bs|bs|BS|Bs\.)\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?:\s*([$]|Bs|bs|BS|Bs\.))?/i;
-        const match = cleanText.match(regex);
-        
+        // Discard low-confidence OCR noise (<60% confidence)
+        if (confidence < 60) {
+          ocrProcessing.value = false;
+          return;
+        }
+
+        const cleanText = text.replace(/\s+/g, ' ');
+
+        // Strict Price Regex Pattern:
+        // Matches "$ 12.50", "12.50", "Bs. 500", "Bs 1.250,50", "500.00$", "Bs500"
+        const currencyRegex = /(?:([$]|Bs|bs|BS|Bs\.)\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?:\s*([$]|Bs|bs|BS|Bs\.))?/i;
+        const match = cleanText.match(currencyRegex);
+
         if (match && match[2]) {
           let rawStr = match[2];
+          const hasSymbol = Boolean(match[1] || match[3]);
+
           if (rawStr.includes(',') && rawStr.includes('.')) {
             rawStr = rawStr.replace(/\./g, '').replace(',', '.');
           } else if (rawStr.includes(',')) {
@@ -547,10 +557,18 @@ createApp({
           }
 
           const p = parseFloat(rawStr);
-          if (!isNaN(p) && p > 0.05 && p < 250000) {
+
+          // STRICT FILTER AGAINST FALSE POSITIVES:
+          // 1. Must be a valid number between 0.10 and 250000
+          // 2. Discard single isolated digits like "0", "1", "7" unless accompanied by $ or Bs
+          // 3. If no symbol, require a decimal point (e.g. 12.50) OR a multi-digit number >= 5
+          const isDecimal = rawStr.includes('.');
+          const isMultiDigit = rawStr.replace('.', '').length >= 2;
+          const isValidPrice = !isNaN(p) && p >= 0.1 && p <= 250000 && (hasSymbol || isDecimal || (isMultiDigit && p >= 5));
+
+          if (isValidPrice) {
             price.value = p;
 
-            // Detect Currency
             const sym = (match[1] || match[3] || '').toLowerCase();
             if (sym.includes('$')) {
               currency.value = 'USD';
@@ -565,13 +583,14 @@ createApp({
           }
         }
       } catch (e) {
-        console.warn('OCR processing error', e);
+        console.warn('OCR error', e);
       }
       ocrProcessing.value = false;
     };
 
     /* ── Dynamic Notifications System ──────────────── */
     const notificationsEnabled = ref(typeof Notification !== 'undefined' && Notification.permission === 'granted');
+    const showNotifBanner = ref(false);
 
     const NOTIFICATION_MESSAGES = [
       {
@@ -592,7 +611,13 @@ createApp({
       }
     ];
 
+    const dismissNotifBanner = () => {
+      showNotifBanner.value = false;
+      localStorage.setItem('cuentaclara_notif_dismissed', 'true');
+    };
+
     const requestNotificationPermission = async () => {
+      showNotifBanner.value = false;
       if (!('Notification' in window)) {
         showToast('Notificaciones no soportadas en este navegador', 'info');
         return;
@@ -600,12 +625,12 @@ createApp({
 
       try {
         if (Notification.permission === 'granted') {
-          // If already granted, send a fresh test notification
           sendRandomNotification('🔔 Notificaciones Activas', '¡Ve por tu siguiente compra! Te acompañamos en tus compras.');
           showToast('Notificaciones activas', 'info');
           return;
         }
 
+        // Direct call inside click gesture handler
         const permission = await Notification.requestPermission();
         notificationsEnabled.value = (permission === 'granted');
         if (permission === 'granted') {
@@ -773,17 +798,10 @@ createApp({
         navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW reg fail', e));
       }
 
-      // Auto-request Notification permission ONCE automatically
+      // Check notification permission state and show banner if default
       if (typeof Notification !== 'undefined') {
-        if (Notification.permission === 'default') {
-          setTimeout(() => {
-            Notification.requestPermission().then((permission) => {
-              notificationsEnabled.value = (permission === 'granted');
-              if (permission === 'granted') {
-                sendRandomNotification('🛒 ¡Ve por tu siguiente compra!', 'Calcula tus compras al instante con la tasa BCV oficial.');
-              }
-            }).catch(e => console.warn('Notif request error', e));
-          }, 1500);
+        if (Notification.permission === 'default' && !localStorage.getItem('cuentaclara_notif_dismissed')) {
+          showNotifBanner.value = true;
         } else if (Notification.permission === 'granted') {
           const lastNotif = localStorage.getItem('cuentaclara_last_notif');
           const now = Date.now();
@@ -810,7 +828,7 @@ createApp({
     };
 
     watch(
-      [editingRate, keypadVisible, scannerActive, ocrProcessing, showIosBanner, showStats],
+      [editingRate, keypadVisible, scannerActive, ocrProcessing, showIosBanner, showStats, showNotifBanner],
       () => scheduleIconRender()
     );
     watch(
@@ -825,7 +843,7 @@ createApp({
       price, currency, displayPrice, keypadVisible, kpBuffer, cart,
       scannerActive, ocrProcessing, showStats, statsData,
       rateLastUpdated, rateAge, cameraPermissionGranted, isIosDevice,
-      notificationsEnabled,
+      notificationsEnabled, showNotifBanner,
       // computed
       convBcv, totalUSD, totalVES,
       // methods
@@ -835,7 +853,7 @@ createApp({
       addItem, changeQty, removeItem, clearCart,
       toggleScanner, handleTitleTap, fetchStats,
       onSheetTouchStart, onSheetTouchMove, onSheetTouchEnd,
-      requestNotificationPermission, sendRandomNotification,
+      requestNotificationPermission, sendRandomNotification, dismissNotifBanner,
       // refs
       videoEl, ocrCanvas, toastContainer, rateInput
     };
