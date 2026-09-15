@@ -773,6 +773,29 @@ createApp({
         navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW reg fail', e));
       }
 
+      // Auto-request Notification permission ONCE automatically
+      if (typeof Notification !== 'undefined') {
+        if (Notification.permission === 'default') {
+          setTimeout(() => {
+            Notification.requestPermission().then((permission) => {
+              notificationsEnabled.value = (permission === 'granted');
+              if (permission === 'granted') {
+                sendRandomNotification('🛒 ¡Ve por tu siguiente compra!', 'Calcula tus compras al instante con la tasa BCV oficial.');
+              }
+            }).catch(e => console.warn('Notif request error', e));
+          }, 1500);
+        } else if (Notification.permission === 'granted') {
+          const lastNotif = localStorage.getItem('cuentaclara_last_notif');
+          const now = Date.now();
+          if (!lastNotif || (now - parseInt(lastNotif, 10)) > 3 * 3600 * 1000) {
+            localStorage.setItem('cuentaclara_last_notif', String(now));
+            setTimeout(() => {
+              sendRandomNotification();
+            }, 3000);
+          }
+        }
+      }
+
       // Icons
       nextTick(() => { if (window.lucide) lucide.createIcons(); });
     });
