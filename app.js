@@ -475,7 +475,7 @@ createApp({
           if (videoEl.value) {
             videoEl.value.srcObject = stream;
             videoEl.value.play();
-            scanTimer = setInterval(ocrFrame, 1000); // Faster: 1 second intervals
+            scanTimer = setInterval(ocrFrame, 650); // Fast 650ms scan interval
           }
         });
       } catch (e) {
@@ -499,15 +499,35 @@ createApp({
       const canvas = ocrCanvas.value;
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-      // Focused center box (65% width, 22% height)
       const vWidth = video.videoWidth;
       const vHeight = video.videoHeight;
-      const cw = Math.floor(vWidth * 0.65);
-      const ch = Math.floor(vHeight * 0.22);
-      const sx = Math.floor((vWidth - cw) / 2);
-      const sy = Math.floor((vHeight - ch) / 2);
+      
+      // Calculate object-fit: cover mapping from video element to video stream
+      const containerRect = video.getBoundingClientRect();
+      const containerAspect = (containerRect.width || 400) / (containerRect.height || 160);
+      const videoAspect = vWidth / vHeight;
 
-      const scale = Math.min(1.0, 360 / cw);
+      let renderW, renderH, renderX, renderY;
+      if (videoAspect > containerAspect) {
+        renderH = vHeight;
+        renderW = vHeight * containerAspect;
+        renderX = (vWidth - renderW) / 2;
+        renderY = 0;
+      } else {
+        renderW = vWidth;
+        renderH = vWidth / containerAspect;
+        renderX = 0;
+        renderY = (vHeight - renderH) / 2;
+      }
+
+      // Exact crop matching visible green target reticle (80% width x 60% height)
+      const cw = Math.floor(renderW * 0.80);
+      const ch = Math.floor(renderH * 0.60);
+      const sx = Math.floor(renderX + (renderW - cw) / 2);
+      const sy = Math.floor(renderY + (renderH - ch) / 2);
+
+      // Downscale to ~400px width for fast OCR processing
+      const scale = Math.min(1.0, 400 / cw);
       const targetW = Math.max(1, Math.floor(cw * scale));
       const targetH = Math.max(1, Math.floor(ch * scale));
 
@@ -515,16 +535,7 @@ createApp({
       canvas.height = targetH;
       ctx.drawImage(video, sx, sy, cw, ch, 0, 0, targetW, targetH);
 
-      // Smooth grayscale + contrast stretch (NO noisy binarization)
-      const img = ctx.getImageData(0, 0, targetW, targetH);
-      const d = img.data;
-      for (let i = 0; i < d.length; i += 4) {
-        let gray = d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
-        let v = Math.min(255, Math.max(0, (gray - 128) * 1.25 + 128));
-        d[i] = d[i+1] = d[i+2] = v;
-      }
-      ctx.putImageData(img, 0, 0);
-
+      // Clean natural image pass to Tesseract (NO harsh binarization distortion)
       try {
         const worker = await initWorker();
         if (!worker) { ocrProcessing.value = false; return; }
@@ -533,22 +544,22 @@ createApp({
         const text = (res?.data?.text || '').trim();
         const confidence = res?.data?.confidence || 0;
 
-        // Discard low-confidence OCR noise (<60% confidence)
-        if (confidence < 60) {
+        // Discard low-confidence scans (<50% confidence)
+        if (confidence < 50) {
           ocrProcessing.value = false;
           return;
         }
 
         const cleanText = text.replace(/\s+/g, ' ');
+        console.log('[OCR Text Raw]:', cleanText, '| Conf:', Math.round(confidence));
 
-        // Strict Price Regex Pattern:
-        // Matches "$ 12.50", "12.50", "Bs. 500", "Bs 1.250,50", "500.00$", "Bs500"
-        const currencyRegex = /(?:([$]|Bs|bs|BS|Bs\.)\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?:\s*([$]|Bs|bs|BS|Bs\.))?/i;
-        const match = cleanText.match(currencyRegex);
+        // Multi-format Price Parser for store labels:
+        // Handles: "$ 12.50", "REF 12.50", "PVP 12.50", "12,50$", "Bs. 500", "Bs 1.250,50", "12.50"
+        const priceRegex = /(?:(?:REF|PVP|[$]|Bs|bs|BS|Bs\.)\s*)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)(?:\s*(?:[$]|Bs|bs|BS|Bs\.|REF|PVP))?/i;
+        const match = cleanText.match(priceRegex);
 
-        if (match && match[2]) {
-          let rawStr = match[2];
-          const hasSymbol = Boolean(match[1] || match[3]);
+        if (match && match[1]) {
+          let rawStr = match[1];
 
           if (rawStr.includes(',') && rawStr.includes('.')) {
             rawStr = rawStr.replace(/\./g, '').replace(',', '.');
@@ -557,22 +568,22 @@ createApp({
           }
 
           const p = parseFloat(rawStr);
-
-          // STRICT FILTER AGAINST FALSE POSITIVES:
-          // 1. Must be a valid number between 0.10 and 250000
-          // 2. Discard single isolated digits like "0", "1", "7" unless accompanied by $ or Bs
-          // 3. If no symbol, require a decimal point (e.g. 12.50) OR a multi-digit number >= 5
+          const hasSymbol = /[$]|bs|ref|pvp/i.test(cleanText);
           const isDecimal = rawStr.includes('.');
           const isMultiDigit = rawStr.replace('.', '').length >= 2;
-          const isValidPrice = !isNaN(p) && p >= 0.1 && p <= 250000 && (hasSymbol || isDecimal || (isMultiDigit && p >= 5));
+
+          // Valid price criteria:
+          // 1. Must be numeric between 0.10 and 250000
+          // 2. Reject isolated single digits like "0", "1", "7" unless accompanied by symbol
+          const isValidPrice = !isNaN(p) && p >= 0.1 && p <= 250000 && (hasSymbol || isDecimal || (isMultiDigit && p >= 3));
 
           if (isValidPrice) {
             price.value = p;
 
-            const sym = (match[1] || match[3] || '').toLowerCase();
-            if (sym.includes('$')) {
+            // Currency detection
+            if (/[$]|usd|ref/i.test(cleanText)) {
               currency.value = 'USD';
-            } else if (sym.includes('b')) {
+            } else if (/bs|ves|boliv/i.test(cleanText)) {
               currency.value = 'VES';
             }
 
