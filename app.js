@@ -801,9 +801,10 @@ createApp({
         navigator.serviceWorker.register('./sw.js').catch(e => console.warn('SW reg fail', e));
       }
 
-      // Check notification permission state and show banner if default
+      // Check notification permission state and show banner if not granted
       if (typeof Notification !== 'undefined') {
-        if (Notification.permission === 'default' && !localStorage.getItem('cuentaclara_notif_dismissed')) {
+        notificationsEnabled.value = (Notification.permission === 'granted');
+        if (Notification.permission === 'default') {
           showNotifBanner.value = true;
         } else if (Notification.permission === 'granted') {
           const lastNotif = localStorage.getItem('cuentaclara_last_notif');
