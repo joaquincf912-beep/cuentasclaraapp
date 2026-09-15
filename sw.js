@@ -1,17 +1,20 @@
-const CACHE_NAME = 'cuentaclara-v9';
+const CACHE_NAME = 'cuentaclara-v10';
 
-// Recursos críticos para pre-cachear en la instalación
+// Recursos críticos para pre-cachear en la instalación (Servicio 100% Offline Sin Conexión)
 const PRECACHE_URLS = [
   './',
   './index.html',
   './app.js',
-  './manifest.json?v=9',
-  './icon-192.png?v=9',
-  './icon-512.png?v=9',
-  './apple-touch-icon.png?v=9',
-  './favicon.png?v=9',
+  './manifest.json?v=10',
+  './icon-192.png?v=10',
+  './icon-512.png?v=10',
+  './apple-touch-icon.png?v=10',
+  './favicon.png?v=10',
   'https://unpkg.com/vue@3.5.13/dist/vue.global.prod.js',
   'https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js',
+  'https://unpkg.com/tesseract.js@5.0.3/dist/tesseract.min.js',
+  'https://unpkg.com/tesseract.js@5.0.3/dist/worker.min.js',
+  'https://unpkg.com/tesseract.js-core@5.0.0/tesseract-core.wasm.js',
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap'
 ];
 
@@ -44,19 +47,18 @@ async function networkWithTimeout(request, timeoutMs) {
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
-    throw error; // Propagar el error si falla la red o por el timeout
+    throw error;
   }
 }
 
 // Evento de instalación: Pre-cachear recursos críticos
 self.addEventListener('install', (event) => {
-  // Saltar la fase de espera inmediatamente
   self.skipWaiting();
   
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('[ServiceWorker] Pre-cacheando recursos críticos');
+        console.log('[ServiceWorker] Pre-cacheando recursos críticos offline');
         return cache.addAll(PRECACHE_URLS);
       })
   );
@@ -95,9 +97,8 @@ self.addEventListener('fetch', (event) => {
   // 1. Llamadas a las APIs de tasa (dolarapi / dolarvzla): Network-First con 5s de timeout
   if (url.hostname === 've.dolarapi.com' || url.hostname === 'rates.dolarvzla.com') {
     event.respondWith(
-      networkWithTimeout(event.request, 5000)
+      networkWithTimeout(event.request, 4000)
         .then((response) => {
-          // Si la petición a red es exitosa, guardar en caché
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseClone);
@@ -105,20 +106,25 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // Si la red falla o hace timeout, servir desde el caché
           return caches.match(event.request);
         })
     );
     return;
   }
 
-  // 2. Peticiones de navegación: Si estamos sin conexión, servir index.html cacheado
+  // 2. Peticiones de navegación (Instant Offline Launch 0ms)
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request)
-        .catch(() => {
-          return caches.match('./index.html');
-        })
+      caches.match('./index.html').then((cachedIndex) => {
+        const fetchPromise = fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', clone));
+          }
+          return networkResponse;
+        }).catch(() => {});
+        return cachedIndex || fetchPromise;
+      })
     );
     return;
   }

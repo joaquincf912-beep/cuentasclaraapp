@@ -768,8 +768,15 @@ createApp({
     /* ── Lifecycle ─────────────────────────────────── */
     onMounted(() => {
       // Network events
-      window.addEventListener('online', () => { isOnline.value = true; fetchRates(); });
-      window.addEventListener('offline', () => { isOnline.value = false; });
+      window.addEventListener('online', () => {
+        isOnline.value = true;
+        showToast('Conexión reestablecida', 'success');
+        fetchRates();
+      });
+      window.addEventListener('offline', () => {
+        isOnline.value = false;
+        showToast('Modo Sin Conexión activo', 'info');
+      });
 
       // PWA install
       window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt.value = e; });
@@ -780,10 +787,14 @@ createApp({
       const standalone = navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
       if (isIos && !standalone) showIosBanner.value = true;
 
-      // Fetch rates
+      // Fetch rates or inform offline mode
       if (isOnline.value) {
         fetchRates().then(() => fetchParalelo());
         logVisit();
+      } else {
+        setTimeout(() => {
+          showToast(`Modo Sin Conexión — Tasa BCV: ${fmtRate(rates.value.bcv)} Bs/$`, 'info');
+        }, 1000);
       }
 
       // Pre-warm Tesseract worker after 3 seconds
